@@ -52,7 +52,11 @@ switch task
                 indind = 1:2;
             end
             
+            sessions = aap.acq_details.([aas_getsesstype(aap) 's']);
+            procind = procind(1:length(sessions));
+            
             for p = procind
+                
                 Nv       = [];
                 Mm       = [];
                 for subjind = 1:length(aap.acq_details.subjects),
