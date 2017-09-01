@@ -92,7 +92,7 @@ switch task
                 end
                 
                 % Find rubbish subjects:
-                s2ignore = sum(invalidroi,2)>scrit;
+                s2ignore = sum(invalidroi,2) > scrit;
                 
                 % Find ROIs to ignore (ignoring rubbish subjects):
                 r2ignore = sum(invalidroi(~s2ignore,:))>ROIRemoveThr;
