@@ -525,7 +525,7 @@ classdef aaq_qsub<aaq
                 if any(jobind)
                     obj.jobinfo(jobind).state = Jobs.State;
                 else
-                    obj.pool.Jobs(find([obj.pool.Jobs.ID] == id)).delete; %#ok<FNDSB>
+                    Jobs.delete;
                 end
                 
                 % Double check that finished jobs do not have an error in the Task object
