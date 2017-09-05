@@ -53,6 +53,11 @@ switch task
             end
             
             for p = procind
+                sessions = aap.acq_details.([aas_getsesstype(aap) 's']);
+                if length(sessions) < p
+                    continue
+                end
+                
                 Nv       = [];
                 Mm       = [];
                 for subjind = 1:length(aap.acq_details.subjects),
@@ -66,7 +71,7 @@ switch task
                         Nv(subjind,1:length([ROI.Nvox])) = [ROI.Nvox];
                         mROI = [ROI.mean];
                         Mm(subjind,1:length(mROI)) = mROI;
-                    end
+                    end 
                 end
                 
                 Nv(Nv == 0) = NaN;
