@@ -518,14 +518,14 @@ classdef aaq_qsub<aaq
                     return;
                 end
                 jobind = [obj.jobinfo.JobID] == id;
-                
+                                
                 % If the job ID does not exist, something went wrong.
                 % Assigning failed will cause the state handler to restart
                 % the job without trying to remove it from pool.
                 if any(jobind)
                     obj.jobinfo(jobind).state = Jobs.State;
                 else
-%                     obj.jobinfo(jobind).state = 'failed';
+                    Jobs.delete; %#ok<FNDSB>
                 end
                 
                 % Double check that finished jobs do not have an error in the Task object
