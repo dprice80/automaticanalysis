@@ -540,7 +540,7 @@ classdef aaq_qsub<aaq
 
             if printjobs
                 Nfinished = sum(strcmp(states,'finished'));
-                Nqueue = sum(strcmp(states,'queued'));
+                Nqueued = sum(strcmp(states,'queued'));
                 Npending = sum(strcmp(states,'pending'));
                 Nfailed = sum(strcmp(states,'failed'));
                 Nerror    = sum(strcmp(states,'error'));
