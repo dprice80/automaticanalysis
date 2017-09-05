@@ -525,20 +525,13 @@ classdef aaq_qsub<aaq
                 if any(jobind)
                     obj.jobinfo(jobind).state = Jobs.State;
                 else
-                    Jobs.delete; %#ok<FNDSB>
+                    Jobs.delete;
                 end
                 
                 % Double check that finished jobs do not have an error in the Task object
                 if strcmp(obj.jobinfo(jobind).state, 'finished')
                     if ~isempty(Jobs.Tasks.ErrorMessage)
                         obj.jobinfo(jobind).state = 'error';
-                        
-                    % Check if done flag exists. 
-                    % Commented out. File system not always up to date and
-                    % reliable.
-%                     elseif ~exist(obj.jobqueue(obj.jobinfo(jobind).qi).doneflag, 'file')
-%                         %                     obj.jobinfo(jobind).state = 'error';
-%                         obj.jobinfo(jobind).state = 'error';
                     end
                 end
             end
@@ -547,7 +540,7 @@ classdef aaq_qsub<aaq
 
             if printjobs
                 Nfinished = sum(strcmp(states,'finished'));
-                Nqueued  = sum(strcmp(states,'queued'));
+                Nqueue = sum(strcmp(states,'queued'));
                 Npending = sum(strcmp(states,'pending'));
                 Nfailed = sum(strcmp(states,'failed'));
                 Nerror    = sum(strcmp(states,'error'));

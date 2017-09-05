@@ -114,6 +114,12 @@ switch task
                 % Native threshold
                 sY = Y{a} > aap.tasklist.currenttask.settings.Nthreshold;
             end
+            
+            maxY = max(Y{a}(:));
+            if numel(Y{a} > 0) == 0 % check for bad thesholding
+                aas_log(aap, true, sprintf('ERROR: No voxels above the threshold mask (%f) [max: %f]', thr(a), maxY))
+            end
+            
             V{a}.fname = fullfile(pth, ['S_r' fn ext]);
             Soutstream = strvcat(Soutstream, V{a}.fname); % Save to stream...
             spm_write_vol(V{a}, sY);
