@@ -215,7 +215,7 @@ classdef aaq_qsub<aaq
                                 
                             case 'failed' % failed to launch
                                 msg = sprintf(...
-                                    ['Failed to launch (Licence?)!\n'...
+                                    ['Failed to launch (This might be a licence issue)\n'...
                                     'Check <a href="matlab: open(''%s'')">logfile</a>\n'...
                                     'Queue ID: %d | qsub ID %d | Subject ID: %s'],...
                                     fullfile(obj.pool.JobStorageLocation, Jobs.Tasks.Parent.Name, [Jobs.Tasks.Name '.log']),...
@@ -401,21 +401,9 @@ classdef aaq_qsub<aaq
                 createTask(J,cj,nrtn,inparg,'CaptureDiary',true);
                 success = false;
                 retries = 0;
-                % Job submission can sometimes fail (server fault) (DP). Added rety to cope this this.
-                while success == false
-                    try
-                        J.submit;
-                        success = true;
-                    catch ME
-                        if retries > obj.aap.options.aaworkermaximumretry
-                            throw(ME)
-                        else
-                            aas_log(obj.aap, false, 'Could not add job. Retrying...')
-                            retries = retries + 1;
-                            pause(5)
-                        end
-                    end
-                end
+
+                J.submit;
+                      
                 % % State what the assigned number of hours and GB is...
                 % Naas_movParsot in use [TA]
                 % fprintf('Job %s, assigned %0.4f hours. and %0.9f GB\n\n', ...
@@ -425,12 +413,12 @@ classdef aaq_qsub<aaq
             end
         end
         
-        
         function obj = add_from_jobqueue(obj, i)
             global aaworker
+            job=obj.jobqueue(i);
+            
             try
                 % Add a job to the queue
-                job=obj.jobqueue(i);
                 obj.qsub_q_job(job);
 
                 % Create job info for referencing later
@@ -457,17 +445,25 @@ classdef aaq_qsub<aaq
                 obj.jobinfo = [obj.jobinfo, ji];
                 obj.jobnotrun(i) = false;
                 rt = obj.jobretries.(ji.modulename)(ji.qi);
-                if isnan(rt), rt = 0; end
-                aas_log(obj.aap, false, sprintf('Added job %s with qsub ID %3.1d | Subject ID: %s | Retry: %3.1d | Jobs submitted: %3.1d',...
+                if isnan(rt)
+                    rt = 0;
+                end
+                aas_log(obj.aap, false, sprintf('Added job %s with qsub ID %3.1d | Subject ID: %s | Attempt: %3.1d | Jobs submitted: %3.1d',...
                     ji.modulename, ji.JobID, ji.subjectinfo.subjname, rt, length(obj.pool.Jobs)))
             catch ME
-                if strcmp(ME.message, 'parallel:job:OperationOnlyValidWhenPending')
+                    % Job can fail to start. Need to handle this as a retry
                     obj.jobretries.(ji.modulename)(i) = obj.jobretries.(ji.modulename)(i) + 1;
                     aas_log(obj.aap, false, sprintf('WARNING: Error starting job: %s | Retries: %d', ME.message, obj.jobretries.(ji.modulename)(i)))
                     obj.jobnotrun(i) = true;
-                else
-                    throw(ME);
-                end
+                    
+                    ji.InputArguments = {[], job.task, job.k, job.indices, aaworker};
+                    ji.modulename = obj.aap.tasklist.main.module(ji.InputArguments{3}).name;
+                    [junk, ji.jobpath]=aas_doneflag_getpath_bydomain(obj.aap,job.domain,job.indices,job.k);
+                    ji.JobID = NaN;
+                    ji.qi = i;
+                    ji.jobrunreported = false;
+                    ji.state = 'failed';
+                    obj.jobinfo = [obj.jobinfo ji];
             end
         end
         
@@ -535,25 +531,13 @@ classdef aaq_qsub<aaq
                 jobind = [obj.jobinfo.JobID] == id;
                 
                 % If the job ID does not exist, jobinfo is not up-to-date
-                % Assigning failed will cause the state handler to restart
-                % the job without trying to remove it from pool.
                 if any(jobind)
                     obj.jobinfo(jobind).state = Jobs.State;
-                else
-%                     obj.jobinfo(jobind).state = 'failed';
-                end
-                
-                % Double check that finished jobs do not have an error in the Task object
-                if strcmp(obj.jobinfo(jobind).state, 'finished')
-                    if ~isempty(Jobs.Tasks.ErrorMessage)
-                        obj.jobinfo(jobind).state = 'error';
-                        
-                    % Check if done flag exists. 
-                    % Commented out. File system not always up to date and
-                    % reliable.
-%                     elseif ~exist(obj.jobqueue(obj.jobinfo(jobind).qi).doneflag, 'file')
-%                         %                     obj.jobinfo(jobind).state = 'error';
-%                         obj.jobinfo(jobind).state = 'error';
+                    % Double check that finished jobs do not have an error in the Task object
+                    if strcmp(obj.jobinfo(jobind).state, 'finished')
+                        if ~isempty(Jobs.Tasks.ErrorMessage)
+                            obj.jobinfo(jobind).state = 'error';
+                        end
                     end
                 end
             end

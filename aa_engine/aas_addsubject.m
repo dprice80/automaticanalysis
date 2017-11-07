@@ -105,12 +105,21 @@ switch aap.directory_conventions.subject_directory_format
     otherwise
         aas_log(aap,true,sprintf('ERROR: Unknown subject directory format (aap.directory_conventions.subject_directory_format=%d. Value only 0-3 is allowed.',aap.directory_conventions.subject_directory_format));
 end
-try
-    args = vargParser(varargin);
-catch
-    aas_log(aap,false,sprintf('ERROR in %s: incorrect arguments',mfilename),'Errors')
-    help(mfilename);
-    error('ERROR in %s: incorrect arguments',mfilename);
+
+if ~isempty(varargin) % if varargin was originally 2 and manual was set then should be empty now
+    try
+        if rem(length(varargin), 2) == 0 % varargin must have been 4 or more
+            args = vargParser(varargin);
+        else
+            aas_log(aap,true,sprintf(...
+                'ERROR in %s: incorrect number of arguments. Remaining arguments should\n be specified as name value pairs. See help aas_addsubject',...
+                mfilename),'Errors')
+        end
+    catch
+        aas_log(aap,false,sprintf('ERROR in %s: incorrect arguments',mfilename),'Errors')
+        help(mfilename);
+        error('ERROR in %s: incorrect arguments',mfilename);
+    end
 end
 
 %% Sanity, compatiblity check
@@ -173,9 +182,8 @@ if isfield(args,'functional') && ~isempty(args.functional)
         for s = 1:numel(args.functional)
             if iscell(args.functional{s}) % multiple 3D files
                 fMRI{end+1} = args.functional{s};
-            elseif ischar(args.functional{s}) ||... % NIfTI file
-                    isstruct(args.functional{s})    % hdr+fname
-                % Get filename
+            elseif (ischar(args.functional{s}) && ~isempty(args.functional{s}) || isstruct(args.functional{s}))
+            % Get filename
                 
                 if isstruct(args.functional{s})
                     if numel(args.functional{s}.fname) > 1 % multiple 3D files
@@ -199,6 +207,7 @@ if isfield(args,'functional') && ~isempty(args.functional)
                         end
                     end
                 end
+                
                 % - try in rawdatadir
                 if ~exist(fname,'file'), fname = fullfile(aas_findvol(aap,spm_file(fname,'path')),spm_file(fname,'filename')); end
                 
@@ -234,6 +243,12 @@ if isfield(args,'functional') && ~isempty(args.functional)
             thissubj.megseriesnumbers{iMEGData}=MEG;
         end
     end
+end
+
+if isfield(args,'meeg')
+    meeg = args.meeg;
+%     meeg(cellfun(@isempty, meeg)) = [];
+    thissubj.megseriesnumbers=meeg;
 end
 
 if isfield(args,'diffusion') && ~isempty(args.diffusion)
