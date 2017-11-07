@@ -20,7 +20,7 @@ function aap = aas_addsubject(aap, varargin)
 %
 %
 % FORMAT function aap = aas_addsubject(___,'name',subjectname)
-% Another way to specify subject name, which ignores aap.directory_conventions.subject_directory_format.
+% Another way to specify subject name manually, if aap.directory_conventions.subject_directory_format is not set to 3.
 %
 % subjectname   - subject name as text string
 %
@@ -184,7 +184,6 @@ if isfield(args,'functional') && ~isempty(args.functional)
                 fMRI{end+1} = args.functional{s};
             elseif (ischar(args.functional{s}) && ~isempty(args.functional{s}) || isstruct(args.functional{s}))
             % Get filename
-                
                 if isstruct(args.functional{s})
                     if numel(args.functional{s}.fname) > 1 % multiple 3D files
                         fMRI{end+1} = args.functional{s};
@@ -230,8 +229,6 @@ if isfield(args,'functional') && ~isempty(args.functional)
                         thissubj.structural{iMRIData}=args.functional(s);
                     end
                 end
-            elseif isempty(args.functional{s}) % missing series
-                fMRI{end+1} = [];
             else % mixed: DICOM series number for fMRI
                 thissubj.seriesnumbers{iMRIData}=args.functional{s};
             end
