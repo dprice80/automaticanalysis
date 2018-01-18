@@ -401,14 +401,16 @@ classdef aaq_qsub<aaq
                 createTask(J,cj,nrtn,inparg,'CaptureDiary',true);
                 success = false;
                 retries = 0;
-                % Job submission can sometimes fail (server fault) (DP). Added rety to cope this this.
+                % Job submission can sometimes fail (server fault) (DP). Added retry to cope this this.
                 while success == false
                     try
                         J.submit;
                         success = true;
                     catch ME
                         if retries > obj.aap.options.aaworkermaximumretry
-                            throw(ME)
+                            aas_log(obj.aap, true,...
+                                sprintf(['ERROR: There was a problem submitting the job to the server.',...
+                                '\n\nThe job scheduler reported the following error message:\n\n%s'], ME.message));
                         else
                             aas_log(obj.aap, false, 'Could not add job. Retrying...')
                             retries = retries + 1;
@@ -425,50 +427,40 @@ classdef aaq_qsub<aaq
             end
         end
         
-        
         function obj = add_from_jobqueue(obj, i)
             global aaworker
-            try
-                % Add a job to the queue
-                job=obj.jobqueue(i);
-                obj.qsub_q_job(job);
-
-                % Create job info for referencing later
-                % (also clean up done jobs to prevent IDs occuring twice)
-                latestjobid = max([obj.pool.Jobs.ID]);
-                if ~all(obj.jobnotrun(i)) % if any jobs have been run yet
-                    obj.jobinfo([obj.jobinfo.JobID] == latestjobid) = []; % remove prev job with same ID
-                end
-                
-                ji.InputArguments = {[], job.task, job.k, job.indices, aaworker};
-                ji.modulename = obj.aap.tasklist.main.module(ji.InputArguments{3}).name;
-                [junk, ji.jobpath]=aas_doneflag_getpath_bydomain(obj.aap,job.domain,job.indices,job.k);
-                ji.JobID = latestjobid;
-                ji.qi = i;
-                ji.jobrunreported = false;
-                ji.state = 'pending';
-                
-                if strcmp(job.domain, 'study')
-                    ji.subjectinfo = struct('subjname', 'ALL SUBJECTS');
-                else
-                    ji.subjectinfo = obj.aap.acq_details.subjects(job.indices(1));
-                end
-                
-                obj.jobinfo = [obj.jobinfo, ji];
-                obj.jobnotrun(i) = false;
-                rt = obj.jobretries.(ji.modulename)(ji.qi);
-                if isnan(rt), rt = 0; end
-                aas_log(obj.aap, false, sprintf('Added job %s with qsub ID %3.1d | Subject ID: %s | Retry: %3.1d | Jobs submitted: %3.1d',...
-                    ji.modulename, ji.JobID, ji.subjectinfo.subjname, rt, length(obj.pool.Jobs)))
-            catch ME
-                if strcmp(ME.message, 'parallel:job:OperationOnlyValidWhenPending')
-                    obj.jobretries.(ji.modulename)(i) = obj.jobretries.(ji.modulename)(i) + 1;
-                    aas_log(obj.aap, false, sprintf('WARNING: Error starting job: %s | Retries: %d', ME.message, obj.jobretries.(ji.modulename)(i)))
-                    obj.jobnotrun(i) = true;
-                else
-                    throw(ME);
-                end
+            % Add a job to the queue
+            job=obj.jobqueue(i);
+            
+            obj.qsub_q_job(job);
+            
+            % Create job info for referencing later
+            % (also clean up done jobs to prevent IDs occuring twice)
+            latestjobid = max([obj.pool.Jobs.ID]);
+            if ~all(obj.jobnotrun(i)) % if any jobs have been run yet
+                obj.jobinfo([obj.jobinfo.JobID] == latestjobid) = []; % remove prev job with same ID
             end
+            
+            ji.InputArguments = {[], job.task, job.k, job.indices, aaworker};
+            ji.modulename = obj.aap.tasklist.main.module(ji.InputArguments{3}).name;
+            [junk, ji.jobpath]=aas_doneflag_getpath_bydomain(obj.aap,job.domain,job.indices,job.k);
+            ji.JobID = latestjobid;
+            ji.qi = i;
+            ji.jobrunreported = false;
+            ji.state = 'pending';
+            
+            if strcmp(job.domain, 'study')
+                ji.subjectinfo = struct('subjname', 'ALL SUBJECTS');
+            else
+                ji.subjectinfo = obj.aap.acq_details.subjects(job.indices(1));
+            end
+            
+            obj.jobinfo = [obj.jobinfo, ji];
+            obj.jobnotrun(i) = false;
+            rt = obj.jobretries.(ji.modulename)(ji.qi);
+            if isnan(rt), rt = 0; end
+            aas_log(obj.aap, false, sprintf('Added job %s with qsub ID %3.1d | Subject ID: %s | Retry: %3.1d | Jobs submitted: %3.1d',...
+                ji.modulename, ji.JobID, ji.subjectinfo.subjname, rt, length(obj.pool.Jobs)))
         end
         
         function obj = remove_from_jobqueue(obj, ID, retry)
@@ -496,7 +488,9 @@ classdef aaq_qsub<aaq
             % counter
             if retry
                 % Remove files from previous execution
-                if exist(ji.jobpath,'dir'), rmdir(ji.jobpath,'s'); end
+%                 if exist(ji.jobpath,'dir')
+%                     rmdir(ji.jobpath,'s');
+%                 end
                 
                 % Add to jobqueue
                 obj.jobretries.(ji.modulename)(ji.qi) = obj.jobretries.(ji.modulename)(ji.qi) + 1;
@@ -534,27 +528,17 @@ classdef aaq_qsub<aaq
                 end
                 jobind = [obj.jobinfo.JobID] == id;
                 
-                % If the job ID does not exist, jobinfo is not up-to-date
-                % Assigning failed will cause the state handler to restart
-                % the job without trying to remove it from pool.
                 if any(jobind)
-                    obj.jobinfo(jobind).state = Jobs.State;
-                else
-%                     obj.jobinfo(jobind).state = 'failed';
-                end
-                
-                % Double check that finished jobs do not have an error in the Task object
-                if strcmp(obj.jobinfo(jobind).state, 'finished')
-                    if ~isempty(Jobs.Tasks.ErrorMessage)
-                        obj.jobinfo(jobind).state = 'error';
-                        
-                    % Check if done flag exists. 
-                    % Commented out. File system not always up to date and
-                    % reliable.
-%                     elseif ~exist(obj.jobqueue(obj.jobinfo(jobind).qi).doneflag, 'file')
-%                         %                     obj.jobinfo(jobind).state = 'error';
-%                         obj.jobinfo(jobind).state = 'error';
+                    obj.jobinfo(jobind).state = Jobs.Tasks.State;
+                    
+                    % Double check that finished jobs do not have an error in the Task object
+                    if strcmp(obj.jobinfo(jobind).state, 'finished')
+                        if ~isempty(Jobs.Tasks.ErrorMessage)
+                            obj.jobinfo(jobind).state = 'error';
+                        end
                     end
+                else
+                    %                     obj.jobinfo(jobind).state = 'failed';
                 end
             end
             
@@ -580,7 +564,7 @@ classdef aaq_qsub<aaq
                 % Could put some backspaces here to remove the last
                 % iteration
                 states = obj.job_monitor(true); % states are also in e.g. obj.jobinfo(i).state
-                if sum(strcmp(states, 'finished')) || sum(strcmp(states, 'error')) || sum(strcmp(states, 'failed'));
+                if sum(strcmp(states, 'finished')) || sum(strcmp(states, 'error')) || sum(strcmp(states, 'failed')) || isempty(states)
                     break;
                 else
                     pause(10)
