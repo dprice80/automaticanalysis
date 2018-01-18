@@ -215,7 +215,7 @@ classdef aaq_qsub<aaq
                                 
                             case 'failed' % failed to launch
                                 msg = sprintf(...
-                                    ['Failed to launch (Licence?)!\n'...
+                                    ['Failed to launch (This might be a licence issue)\n'...
                                     'Check <a href="matlab: open(''%s'')">logfile</a>\n'...
                                     'Queue ID: %d | qsub ID %d | Subject ID: %s'],...
                                     fullfile(obj.pool.JobStorageLocation, Jobs.Tasks.Parent.Name, [Jobs.Tasks.Name '.log']),...
@@ -401,6 +401,7 @@ classdef aaq_qsub<aaq
                 createTask(J,cj,nrtn,inparg,'CaptureDiary',true);
                 success = false;
                 retries = 0;
+
                 % Job submission can sometimes fail (server fault) (DP). Added retry to cope this this.
                 while success == false
                     try
@@ -418,6 +419,7 @@ classdef aaq_qsub<aaq
                         end
                     end
                 end
+
                 % % State what the assigned number of hours and GB is...
                 % Naas_movParsot in use [TA]
                 % fprintf('Job %s, assigned %0.4f hours. and %0.9f GB\n\n', ...
@@ -429,6 +431,7 @@ classdef aaq_qsub<aaq
         
         function obj = add_from_jobqueue(obj, i)
             global aaworker
+
             % Add a job to the queue
             job=obj.jobqueue(i);
             

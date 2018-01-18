@@ -8,6 +8,7 @@ switch task
     case 'doit'
         %% Initialise
 
+        spm('defaults','eeg')
         sessdir = aas_getsesspath(aap,subj,sess);
         inputstreams = aas_getstreams(aap,'input');
         infname = aas_getfiles_bystream(aap,'meg_session',[subj sess],inputstreams{2});        
