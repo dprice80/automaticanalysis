@@ -24,6 +24,8 @@
                 <window>10</window>
                 <corr>0.980</corr>
                 <mvcomp>on</mvcomp>
+                <headpos>on</headpos>
+                <deletefif>no</deletefif>
             </sss>
             
             <downsampling desc='Downsampling (with low-pass FIR filtering) factor'></downsampling>
