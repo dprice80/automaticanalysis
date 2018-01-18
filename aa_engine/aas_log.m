@@ -15,7 +15,7 @@ ST = dbstack;
 isEngine = numel(ST) > 1 && ~isempty(strfind(ST(2).name,'aaq'));
 
 % aap defaults
-if ~isstruct(aap) 
+if ~isstruct(aap)
     aap.options.verbose = 2;
     aap.options.email = '';
 	aap.gui_controls.usecolouroutput = false;
