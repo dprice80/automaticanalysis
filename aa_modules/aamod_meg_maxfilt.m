@@ -118,33 +118,74 @@ switch task
         end
         
         for sess = meg_sessions
-            %% Initialise
-            sesspath = aas_getsesspath(aap,subj,sess);
-            
-            % clear previous diagnostics
-            delete(fullfile(sesspath,'diagnostic_aamod_meg_maxfilt_*'));
-            
-            instream = aas_getstreams(aap,'input'); instream = instream{1};
-            infname = aas_getfiles_bystream(aap,'meg_session',[subj sess],instream);
-            outfname = fullfile(sesspath,['mf2pt2_' basename(infname) '.fif']); % specifying output filestem
-            delete(fullfile(sesspath,'*mf2pt2_*'));
-            [pth, fstem, ext] = fileparts(outfname);
-            
-            isEmptyRoom = strcmp(aap.acq_details.meg_sessions(sess).name,'empty_room');
-            
-            %% Sphere fit
-            spherefit = [];
-            if ~isEmptyRoom % if empty_room session, skip ...
-                addpath(fullfile(aap.directory_conventions.neuromagdir,'meg_pd_1.2'));
-                try spherefit = meg_fit_sphere_rik(aap,infname,outfname);
-                catch E
-                    aas_log(aap,1,sprintf('ERROR: Spherefit failed for %s: %s!\nERROR: No frame/origin will be applied!',aas_getsessdesc(aap,subj,sess),E.message))
-                end;
-                rmpath(fullfile(aap.directory_conventions.neuromagdir,'meg_pd_1.2'));
-            else
-                if ~isempty(HPIsess) % ... and load from HPIsess
-                    megfname = aas_getfiles_bystream(aap,'meg_session',[subj,HPIsess],'meg','output');
-                    spherefit = load(spm_file(megfname,'suffix','_sphere_fit','ext','txt'),'-ASCII','spherefit');
+
+                %% Initialise
+                sesspath = aas_getsesspath(aap,subj,sess);
+                
+                % clear previous diagnostics
+                delete(fullfile(sesspath,'diagnostic_aamod_meg_maxfilt_*'));
+                
+                instream = aas_getstreams(aap,'input'); instream = instream{1};
+                infname = aas_getfiles_bystream(aap,'meg_session',[subj sess],instream);
+                outfname = fullfile(sesspath,['mf2pt2_' basename(infname) '.fif']); % specifying output filestem
+                delete(fullfile(sesspath,'*mf2pt2_*'));
+                [pth, fstem, ext] = fileparts(outfname);
+                
+                isEmptyRoom = strcmp(aap.acq_details.meg_sessions(sess).name,'empty_room');
+                
+                %% Sphere fit
+                spherefit = [];
+                if ~isEmptyRoom % if empty_room session, skip ...
+                    addpath(fullfile(aap.directory_conventions.neuromagdir,'meg_pd_1.2'));
+                    try spherefit = meg_fit_sphere_rik(aap,infname,outfname);
+                    catch E
+                        aas_log(aap,1,sprintf('ERROR: Spherefit failed for %s: %s!\nERROR: No frame/origin will be applied!',aas_getsessdesc(aap,subj,sess),E.message))
+                    end;
+                    rmpath(fullfile(aap.directory_conventions.neuromagdir,'meg_pd_1.2'));
+                else
+                    if ~isempty(HPIsess) % ... and load from HPIsess
+                        megfname = aas_getfiles_bystream(aap,'meg_session',[subj,HPIsess],'meg','output');
+                        spherefit = load(spm_file(megfname,'suffix','_sphere_fit','ext','txt'),'-ASCII','spherefit');
+                    else
+                        aas_log(aap,1,sprintf('WARNING: Session for HPI not defined!\nWARNING: HPI is not perfomed for %s!',aas_getsessdesc(aap,subj,sess)))
+                    end
+                end
+                
+                %% Maxfilt
+                orgcmd = '';
+                hpicmd = '';
+                stcmd  = '';
+                trcmd_par = '';
+                
+                % Origin and frame
+                if ~isempty(spherefit)
+                    orgcmd = sprintf(' -frame head -origin %g %g %g',spherefit(1),spherefit(2),spherefit(3)');
+                end
+                
+                % Autobad throughout (assumes 15mins=900s)
+                badstr  = sprintf(' -autobad %d -badlimit %d',...
+                    aas_getsetting(aap,'autobad.interval',sess),...
+                    aas_getsetting(aap,'autobad.badlimit',sess));
+                
+                % SSS with ST:
+                if aap.tasklist.currenttask.settings.sss.run
+                    stcmd    = sprintf(' -st %d -corr %g ',...
+                        aas_getsetting(aap,'sss.window',sess),...
+                        aas_getsetting(aap,'sss.corr',sess));
+                    
+                else
+                    stcmd = ''; % To avoid jumps between end of 10s buffer, as warned in manual
+                end
+                
+                % Do movecomp?
+                if strcmp(aap.tasklist.currenttask.settings.sss.mvcomp, 'on') || isempty(aap.tasklist.currenttask.settings.sss.mvcomp)
+                    mvcmd = ' -movecomp inter'; % areguments added to the maxfilter unix command
+                    mvcomp_out = char(fullfile(sesspath,[fstem '_headpoints.txt']),...
+                        fullfile(sesspath,[fstem '_headposition.pos'])); % used later when checking md5 checksums
+                elseif strcmp(aap.tasklist.currenttask.settings.sss.mvcomp, 'off')
+                    mvcmd = '';
+                    mvcomp_out = char(fullfile(sesspath,[fstem '_headpoints.txt'])); % used later when checking md5 checksums (no headpos in this case)
+
                 else
                     aas_log(aap,1,sprintf('WARNING: Session for HPI not defined!\nWARNING: HPI is not perfomed for %s!',aas_getsessdesc(aap,subj,sess)))
                 end
@@ -339,6 +380,7 @@ switch task
                     end
                     outs{i} = outdsfname;
                 end
+
             end
             
             %% Outputs
@@ -351,5 +393,6 @@ switch task
             if ~isempty(spherefit) && ~isempty(aap.tasklist.currenttask.settings.transform)
                 aap=aas_desc_outputs(aap,subj,sess,['trans_' instream],outs{2});
             end
+
         end
 end
