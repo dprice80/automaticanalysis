@@ -408,10 +408,14 @@ classdef aaq_qsub<aaq
                         J.submit;
                         success = true;
                     catch ME
-                        if retries > obj.aap.options.aaworkermaximumretry
-                            aas_log(obj.aap, true,...
-                                sprintf(['ERROR: There was a problem submitting the job to the server.',...
-                                '\n\nThe job scheduler reported the following error message:\n\n%s'], ME.message));
+                        if retries == 1
+                            aas_log(obj.aap, false,...
+                                sprintf(['WARNING: There was a problem submitting the job to the server.',...
+                                '\n\nThe job scheduler reported the following error message:\n\n%s\nDeleting job and resumbitting to the queue.'], ME.message));
+                            qi = obj.jobinfo([obj.jobinfo.JobID] == J.ID).qi; % Find index in the main job list
+                            obj.jobnotrun(qi) = true; % 
+                            J.delete
+                            return
                         else
                             aas_log(obj.aap, false, 'Could not add job. Retrying...')
                             retries = retries + 1;
@@ -419,11 +423,6 @@ classdef aaq_qsub<aaq
                         end
                     end
                 end
-
-                % % State what the assigned number of hours and GB is...
-                % Naas_movParsot in use [TA]
-                % fprintf('Job %s, assigned %0.4f hours. and %0.9f GB\n\n', ...
-                % job.stagename, timReq./(60*60), memReq./(1024^3))
             else
                 aa_doprocessing_onetask(obj.aap,job.task,job.k,job.indices);
             end
@@ -541,7 +540,15 @@ classdef aaq_qsub<aaq
                         end
                     end
                 else
-                    %                     obj.jobinfo(jobind).state = 'failed';
+                    % Somehow the jobs was not removed from the job queue,
+                    % but is no longer in obj.jobinfo. Try to remove again
+                    % from the cluster.
+
+                    disp('Job in cluster has been deleted locally. ')
+                    obj.pool.Jobs([obj.pool.Jobs.ID] == id).cancel;
+                    
+                    
+                    error('Job is missing from the job queue')
                 end
             end
             
