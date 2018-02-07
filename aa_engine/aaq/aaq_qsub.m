@@ -16,20 +16,26 @@ classdef aaq_qsub<aaq
         function [obj]=aaq_qsub(aap)
             global aaworker;
             global aaparallel;
-            aaparallel.numberofworkers=1;
+            
             try
                 if ~isempty(aap.directory_conventions.poolprofile)
+                    % Parse configuration
+                    queue = '';
+                    poolprofile = textscan(aap.directory_conventions.poolprofile,'%s','delimiter', ':'); poolprofile = poolprofile{1};
+                    if numel(poolprofile) == 1, poolprofile = poolprofile{1};
+                    else [poolprofile, queue] = poolprofile{1:2}; end
+                    
                     profiles = parallel.clusterProfiles;
-                    if ~any(strcmp(profiles,aap.directory_conventions.poolprofile))
-                        ppfname = which(spm_file(aap.directory_conventions.poolprofile,'ext','.settings'));
+                    if ~any(strcmp(profiles,poolprofile))
+                        ppfname = which(spm_file(poolprofile,'ext','.settings'));
                         if isempty(ppfname)
-                            aas_log(obj.aap,true,sprintf('ERROR: settings for pool profile %s not found!',aap.directory_conventions.poolprofile));
+                            aas_log(obj.aap,true,sprintf('ERROR: settings for pool profile %s not found!',poolprofile));
                         else
                             obj.pool=parcluster(parallel.importProfile(ppfname));
                         end
                     else
-                        aas_log(obj.aap,false,sprintf('INFO: pool profile %s found',aap.directory_conventions.poolprofile));
-                        obj.pool=parcluster(aap.directory_conventions.poolprofile);
+                        aas_log(obj.aap,false,sprintf('INFO: pool profile %s found',poolprofile));
+                        obj.pool=parcluster(poolprofile);
                     end
                     switch class(obj.pool)
                         case 'parallel.cluster.Torque'
@@ -40,13 +46,25 @@ classdef aaq_qsub<aaq
                                 obj.initialSubmitArguments = ' -W x=\"NODESET:ONEOF:FEATURES:MAXFILTER\"';
                             end
                             obj.pool.SubmitArguments = strcat(obj.pool.SubmitArguments,obj.initialSubmitArguments);
+                            aaparallel.numberofworkers = 1;
+                        case 'parallel.cluster.LSF'
+                            aas_log(obj.aap,false,'INFO: pool LSF is detected');
+                            if ~isempty(queue), obj.initialSubmitArguments = [' -q ' queue]; end
+                            obj.initialSubmitArguments = sprintf('%s -M %d -R "rusage[mem=%d]"',obj.initialSubmitArguments,aaparallel.memory*1000,aaparallel.memory*1000);
+                            obj.pool.SubmitArguments = strcat(obj.pool.SubmitArguments,obj.initialSubmitArguments);
+                            aaparallel.numberofworkers = aap.options.aaparallel.numberofworkers;
                         case 'parallel.cluster.Generic'
                             aas_log(obj.aap,false,'INFO: Generic engine is detected');
                             obj.pool.IndependentSubmitFcn = obj.SetArg(obj.pool.IndependentSubmitFcn,'walltime',aaparallel.walltime);
                             obj.pool.IndependentSubmitFcn = obj.SetArg(obj.pool.IndependentSubmitFcn,'memory',aaparallel.memory);
+                            aaparallel.numberofworkers = 1;
+                        case 'Local'
+                            aas_log(obj.aap,false,'INFO: Local engine is detected');  
+                            aaparallel.numberofworkers = aap.options.aaparallel.numberofworkers;
                     end
                 else
                     obj.pool = parcluster('local');
+                    aaparallel.numberofworkers=12;
                 end
                 obj.pool.NumWorkers = aaparallel.numberofworkers;
                 obj.pool.JobStorageLocation = aaworker.parmpath;
@@ -115,7 +133,7 @@ classdef aaq_qsub<aaq
                     % Find how many free workers available, then allocate next
                     % batch. Skip section if there are no jobs to run.
                     if any(obj.jobnotrun)
-                        if printswitches.jobsinq;
+                        if printswitches.jobsinq
                             aas_log(obj.aap, false, sprintf('Jobs in aa queue: %d\n', sum(obj.jobnotrun)))
                             printswitches.jobsinq = false; % Don't display again unless queue length changes
                         end
@@ -170,24 +188,49 @@ classdef aaq_qsub<aaq
                     % job information is stored in JI, including the main
                     % queue index JI.qi used to refer back to the original
                     % job queue (obj.jobqueue) created when this object was called.
+                    Jobs = obj.pool.Jobs([obj.pool.Jobs.ID] == JI.JobID);
+                    moduleName = obj.aap.tasklist.main.module(JI.InputArguments{3}).name;
+                    indices = JI.InputArguments{4};
                     
-                    % This section of code only runs if the job is not
-                    % running (has finished or error)
-                    if strcmp(JI.state, 'finished') || strcmp(JI.state, 'error') || strcmp(JI.state, 'failed')
-                        Jobs = obj.pool.Jobs([obj.pool.Jobs.ID] == JI.JobID);
-                        if isempty(Jobs) % cleared by the GUI
-                            if obj.QV.isvalid
-                                obj.QV.Hold = false;
+                    if isempty(Jobs) % cleared by the GUI
+                        if obj.QV.isvalid
+                            obj.QV.Hold = false;
+                        end
+                        obj.fatalerrors = true; % abnormal terminations
+                        obj.close;
+                        return;
+                    end
+                    
+                    if strcmp(Jobs.State, 'running') % make sure we have up-to-date info (important for fast processes)
+                        
+                        w = Jobs.Tasks.Worker;
+                        if ~isstruct(w) || ~all(isfield(w,{'Host','ProcessId'})), continue; end % structure may not have been updated, yet?
+                        [junk, txt] = system(sprintf('ssh %s ps -o %%cpu %d',w.Host,w.ProcessId));
+                        lines = strsplit(txt,'\n');
+                        CPU = str2double(lines{2});
+                        if CPU > 10 % assume it is processed when %CPU > 10
+                            obj.jobinfo([obj.jobinfo.JobID] == JI.JobID).tic = [];
+%                             aas_log(obj.aap,false,sprintf('Job%d (%s) is running at %3.1f %%%%CPU',JI.JobID,moduleName,CPU),obj.aap.gui_controls.colours.info)
+                        else
+                            if isempty(JI.tic)
+                                obj.jobinfo([obj.jobinfo.JobID] == JI.JobID).tic = tic;
+                                aas_log(obj.aap,false,sprintf('Job%d (%s) seems to be stopped',JI.JobID,moduleName),obj.aap.gui_controls.colours.warning)
+                            else
+                                t = round(toc(JI.tic));
+                                % aa to switch this on/off or extend the time? On very busy
+                                % servers this might cause all jobs to be
+                                % perpetually deleted and restarted.
+                                aas_log(obj.aap,false,sprintf('Job%d (%s) seems to be stopped for %d seconds',JI.JobID,moduleName,t),obj.aap.gui_controls.colours.warning)
+                                if (obj.aap.options.aaworkermaximumretry > 1) && (t > obj.aap.options.aaworkerwaitbeforeretry) % if job has been sleeping for more than N seconds
+                                    obj.remove_from_jobqueue(JI.JobID, true); % 2nd argument = retry
+                                    aas_log(obj.aap,false,'    Job has been restarted',obj.aap.gui_controls.colours.warning)
+                                end
                             end
-                            obj.fatalerrors = true; % abnormal terminations
-                            obj.close;
-                            return;
                         end
                         
-                        %                     moduleName = JI.InputArguments{1}.tasklist.main.module(JI.InputArguments{3}).name;
+                    else
+                        
                         aap = aas_setcurrenttask(obj.aap,JI.InputArguments{3});
-                        moduleName = obj.aap.tasklist.main.module(JI.InputArguments{3}).name;
-                        indices = JI.InputArguments{4};
                         datname = ''; datpath = '';
                         if numel(indices) > 0 % subject specified
                             datname = aas_getsubjdesc(aap,indices(1));
@@ -201,9 +244,9 @@ classdef aaq_qsub<aaq
                         if ~isempty(Jobs.Tasks.Error)
                             switch Jobs.Tasks.Error.identifier
                                 case 'parallel:job:UserCancellation'
-                                    state = 'cancelled';
+                                    JI.state = 'cancelled';
                                 otherwise
-                                    state = 'error';
+                                    JI.state = 'error';
                             end
                         end
                         
@@ -244,10 +287,9 @@ classdef aaq_qsub<aaq
                                 
                             case 'finished' % without error
                                 if isempty(Jobs.Tasks.FinishTime), continue; end
-                                dtvs = dts2dtv(Jobs.Tasks.CreateTime);
-                                dtvf = dts2dtv(Jobs.Tasks.FinishTime);
                                 msg = sprintf('JOB %d: \tMODULE %s \tON %s \tSTARTED %s \tFINISHED %s \tUSED %s.',...
-                                    JI.JobID,moduleName,datname,Jobs.Tasks.CreateTime,Jobs.Tasks.FinishTime,sec2dts(etime(dtvf,dtvs)));
+                                    JI.JobID,moduleName,datname,Jobs.Tasks.CreateTime,Jobs.Tasks.FinishTime,...
+                                    sprintf('%*dd %*dh %dm %ds',round(datevec(jts_etime(Jobs.Tasks.FinishTime,Jobs.Tasks.CreateTime)/3600/24))));
                                 aas_log(obj.aap,false,msg,obj.aap.gui_controls.colours.completed);
                                 
                                 % Also save to file with module name attached!
@@ -301,11 +343,11 @@ classdef aaq_qsub<aaq
         function obj = QVUpdate(obj)
             if obj.aap.options.aaworkerGUI
                 % queue viewer
-                % if ~isempty(obj.QV) && ~obj.QV.isvalid % killed
-                %     return
-                % end
                 if ~isempty(obj.pool)
-                    if (isempty(obj.QV) || ~obj.QV.OnScreen) % closed
+                    if ~isempty(obj.QV) && ~obj.QV.isvalid % started but killed
+                        return
+                    end
+                    if (isempty(obj.QV) || ~obj.QV.OnScreen) % not started or closed
                         obj.QV = aas_qsubViewerClass(obj);
                         obj.QV.Hold = true;
                         obj.QV.setAutoUpdate(false);
@@ -430,16 +472,42 @@ classdef aaq_qsub<aaq
         function obj = add_from_jobqueue(obj, i)
             global aaworker
 
-            % Add a job to the queue
-            job=obj.jobqueue(i);
-            
-            obj.qsub_q_job(job);
-            
-            % Create job info for referencing later
-            % (also clean up done jobs to prevent IDs occuring twice)
-            latestjobid = max([obj.pool.Jobs.ID]);
-            if ~all(obj.jobnotrun(i)) % if any jobs have been run yet
-                obj.jobinfo([obj.jobinfo.JobID] == latestjobid) = []; % remove prev job with same ID
+                % Create job info for referencing later
+                % (also clean up done jobs to prevent IDs occuring twice)
+                latestjobid = max([obj.pool.Jobs.ID]);
+                if ~all(obj.jobnotrun(i)) % if any jobs have been run yet
+                    obj.jobinfo([obj.jobinfo.JobID] == latestjobid) = []; % remove prev job with same ID
+                end
+                
+                ji.InputArguments = {[], job.task, job.k, job.indices, aaworker};
+                ji.modulename = obj.aap.tasklist.main.module(ji.InputArguments{3}).name;
+                [junk, ji.jobpath]=aas_doneflag_getpath_bydomain(obj.aap,job.domain,job.indices,job.k);
+                ji.JobID = latestjobid;
+                ji.qi = i;
+                ji.jobrunreported = false;
+                ji.state = 'pending';
+                ji.tic = tic;
+                
+                if strcmp(job.domain, 'study')
+                    ji.subjectinfo = struct('subjname', 'ALL SUBJECTS');
+                else
+                    ji.subjectinfo = obj.aap.acq_details.subjects(job.indices(1));
+                end
+                
+                obj.jobinfo = [obj.jobinfo, ji];
+                obj.jobnotrun(i) = false;
+                rt = obj.jobretries.(ji.modulename)(ji.qi);
+                if isnan(rt), rt = 0; end
+                aas_log(obj.aap, false, sprintf('Added job %s with qsub ID %3.1d | Subject ID: %s | Execution: %3.1d | Jobs submitted: %3.1d',...
+                    ji.modulename, ji.JobID, ji.subjectinfo.subjname, rt, length(obj.pool.Jobs)))
+            catch ME
+                if strcmp(ME.message, 'parallel:job:OperationOnlyValidWhenPending')
+                    obj.jobretries.(ji.modulename)(i) = obj.jobretries.(ji.modulename)(i) + 1;
+                    aas_log(obj.aap, false, sprintf('WARNING: Error starting job: %s | Retries: %d', ME.message, obj.jobretries.(ji.modulename)(i)))
+                    obj.jobnotrun(i) = true;
+                else
+                    throw(ME);
+                end
             end
             
             ji.InputArguments = {[], job.task, job.k, job.indices, aaworker};
@@ -585,27 +653,14 @@ end
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%% UTILS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function dtv = dts2dtv(dts)
-s = textscan(dts,'%s'); s = s{1}; s(5) = [];
-s = strcat(s,{' ',' ',' ',' ',' '}'); s = [s{:}]; s = s(1:end-1);
-dtformat = 'ddd mmm dd HH:MM:SS yyyy';
-dtv = datevec(s,dtformat);
+function esec = jts_etime(jts2,jts1)
+    df = java.text.SimpleDateFormat('EEE MMM dd HH:mm:ss zzz yyyy');
+    cal1 = java.util.GregorianCalendar.getInstance;
+    cal2 = java.util.GregorianCalendar.getInstance;
+    cal1.setTime(df.parse(jts1));
+    cal2.setTime(df.parse(jts2));
+    esec = etime([cal2.get(java.util.GregorianCalendar.YEAR) cal2.get(java.util.GregorianCalendar.MONTH)+1 cal2.get(java.util.GregorianCalendar.DAY_OF_MONTH) ...
+        cal2.get(java.util.GregorianCalendar.HOUR_OF_DAY) cal2.get(java.util.GregorianCalendar.MINUTE) cal2.get(java.util.GregorianCalendar.SECOND)],...
+        [cal1.get(java.util.GregorianCalendar.YEAR) cal1.get(java.util.GregorianCalendar.MONTH)+1 cal1.get(java.util.GregorianCalendar.DAY_OF_MONTH) ...
+        cal1.get(java.util.GregorianCalendar.HOUR_OF_DAY) cal1.get(java.util.GregorianCalendar.MINUTE) cal1.get(java.util.GregorianCalendar.SECOND)]);
 end
-
-function dts = sec2dts(dt)
-dt_str = {'s','m','h'};
-dt_div = [60 60 24];
-
-dts = '';
-for i = 1:numel(dt_str)
-    dts = [' ' num2str(mod(dt,dt_div(i))) dt_str{i} dts]; dt = floor(dt/dt_div(i));
-    if ~dt, break, end
-end
-if dt
-    dts = [num2str(dt) 'd' dts];
-else
-    dts = dts(2:end);
-end
-end
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%% DLG %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
