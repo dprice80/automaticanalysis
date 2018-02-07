@@ -321,7 +321,7 @@ switch task
             TraMat{m} = iweights(:,finalics) * weights{m}(finalics,:);
         end
                
-        if isempty(cat(2,toremove{:}))
+        if all(cellfun(@isempty, toremove))
             aas_log(aap,false,'WARNING: No ICs to remove - but applying identity montage anyway');
         end
  

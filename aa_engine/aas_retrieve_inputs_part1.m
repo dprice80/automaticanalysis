@@ -115,6 +115,10 @@ for depind=1:length(deps)
                 reloadfiles=true;
                 fid=fopen(outputstreamdesc,'r');
                 
+                if fid == -1
+                    aas_log(aap, true, sprintf('ERROR: Could not find output stream:\n%s', outputstreamdesc))
+                end
+                    
                 % Load checksum with error checking
                 [aap,md5,datecheck, isarchived]=aas_load_md5(aap,fid,streamname);
 
@@ -281,8 +285,12 @@ for depind=1:length(deps)
                     reloadfiles=true;
                     fid=fopen(outputstreamdesc,'r');
                     
+                    if fid == -1
+                        aas_log(aap, true, sprintf('ERROR: Could not find output stream:\n%s', outputstreamdesc))
+                    end
+                    
                     % Load checksum with error checking
-                    [aap,md5,datecheck, isarchived]=aas_load_md5(aap,fid,streamname);
+                    [aap, md5, datecheck, isarchived] = aas_load_md5(aap,fid,streamname);
                     
                     % Issue retrieval request if this stream is archived
                     if isarchived
@@ -431,6 +439,10 @@ for depind=1:length(deps)
                     streamdesc=fullfile(dest,descriptor);
                     movefile(tmp,streamdesc);
                     fid=fopen(streamdesc,'r');
+                    
+                    if fid == -1
+                        aas_log(aap, true, sprintf('ERROR: Could not find output stream:\n%s', streamdesc))
+                    end
                     
                     % Load md5 checksum from stream file with error checking
                     [aap md5stored]=aas_load_md5(aap,fid,streamname);

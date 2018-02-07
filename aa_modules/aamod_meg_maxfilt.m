@@ -97,6 +97,16 @@ switch task
         aap = aas_report_add(aap,subj,'</tr></table>');
     case 'doit'
         
+        headpos = false;
+        if strcmp(aap.tasklist.currenttask.settings.sss.headpos, 'off')
+            headpos = true;
+        end
+        
+        deletefif = false;
+        if strcmp(aap.tasklist.currenttask.settings.sss.deletefif, 'yes')
+            deletefif = true;
+        end
+        
         %% If session for HPI is specified, bring forward
         meg_sessions = aap.acq_details.selected_sessions;
         HPIsess = aas_getsetting(aap,'hpi.session');
@@ -108,6 +118,7 @@ switch task
         end
         
         for sess = meg_sessions
+<<<<<<< HEAD
             %% Initialise
             sesspath = aas_getsesspath(aap,subj,sess);
             
@@ -135,6 +146,76 @@ switch task
                 if ~isempty(HPIsess) % ... and load from HPIsess
                     megfname = aas_getfiles_bystream(aap,'meg_session',[subj,HPIsess],'meg','output');
                     spherefit = load(spm_file(megfname,'suffix','_sphere_fit','ext','txt'),'-ASCII','spherefit');
+=======
+
+                %% Initialise
+                sesspath = aas_getsesspath(aap,subj,sess);
+                
+                % clear previous diagnostics
+                delete(fullfile(sesspath,'diagnostic_aamod_meg_maxfilt_*'));
+                
+                instream = aas_getstreams(aap,'input'); instream = instream{1};
+                infname = aas_getfiles_bystream(aap,'meg_session',[subj sess],instream);
+                outfname = fullfile(sesspath,['mf2pt2_' basename(infname) '.fif']); % specifying output filestem
+                delete(fullfile(sesspath,'*mf2pt2_*'));
+                [pth, fstem, ext] = fileparts(outfname);
+                
+                isEmptyRoom = strcmp(aap.acq_details.meg_sessions(sess).name,'empty_room');
+                
+                %% Sphere fit
+                spherefit = [];
+                if ~isEmptyRoom % if empty_room session, skip ...
+                    addpath(fullfile(aap.directory_conventions.neuromagdir,'meg_pd_1.2'));
+                    try spherefit = meg_fit_sphere_rik(aap,infname,outfname);
+                    catch E
+                        aas_log(aap,1,sprintf('ERROR: Spherefit failed for %s: %s!\nERROR: No frame/origin will be applied!',aas_getsessdesc(aap,subj,sess),E.message))
+                    end;
+                    rmpath(fullfile(aap.directory_conventions.neuromagdir,'meg_pd_1.2'));
+                else
+                    if ~isempty(HPIsess) % ... and load from HPIsess
+                        megfname = aas_getfiles_bystream(aap,'meg_session',[subj,HPIsess],'meg','output');
+                        spherefit = load(spm_file(megfname,'suffix','_sphere_fit','ext','txt'),'-ASCII','spherefit');
+                    else
+                        aas_log(aap,1,sprintf('WARNING: Session for HPI not defined!\nWARNING: HPI is not perfomed for %s!',aas_getsessdesc(aap,subj,sess)))
+                    end
+                end
+                
+                %% Maxfilt
+                orgcmd = '';
+                hpicmd = '';
+                stcmd  = '';
+                trcmd_par = '';
+                
+                % Origin and frame
+                if ~isempty(spherefit)
+                    orgcmd = sprintf(' -frame head -origin %g %g %g',spherefit(1),spherefit(2),spherefit(3)');
+                end
+                
+                % Autobad throughout (assumes 15mins=900s)
+                badstr  = sprintf(' -autobad %d -badlimit %d',...
+                    aas_getsetting(aap,'autobad.interval',sess),...
+                    aas_getsetting(aap,'autobad.badlimit',sess));
+                
+                % SSS with ST:
+                if aap.tasklist.currenttask.settings.sss.run
+                    stcmd    = sprintf(' -st %d -corr %g ',...
+                        aas_getsetting(aap,'sss.window',sess),...
+                        aas_getsetting(aap,'sss.corr',sess));
+                    
+                else
+                    stcmd = ''; % To avoid jumps between end of 10s buffer, as warned in manual
+                end
+                
+                % Do movecomp?
+                if strcmp(aap.tasklist.currenttask.settings.sss.mvcomp, 'on') || isempty(aap.tasklist.currenttask.settings.sss.mvcomp)
+                    mvcmd = ' -movecomp inter'; % areguments added to the maxfilter unix command
+                    mvcomp_out = char(fullfile(sesspath,[fstem '_headpoints.txt']),...
+                        fullfile(sesspath,[fstem '_headposition.pos'])); % used later when checking md5 checksums
+                elseif strcmp(aap.tasklist.currenttask.settings.sss.mvcomp, 'off')
+                    mvcmd = '';
+                    mvcomp_out = char(fullfile(sesspath,[fstem '_headpoints.txt'])); % used later when checking md5 checksums (no headpos in this case)
+
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
                 else
                     aas_log(aap,1,sprintf('WARNING: Session for HPI not defined!\nWARNING: HPI is not perfomed for %s!',aas_getsessdesc(aap,subj,sess)))
                 end
@@ -168,10 +249,18 @@ switch task
             
             % Do movecomp?
             if strcmp(aap.tasklist.currenttask.settings.sss.mvcomp, 'on') || isempty(aap.tasklist.currenttask.settings.sss.mvcomp)
+<<<<<<< HEAD
+=======
+                mvcompon = true;
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
                 mvcmd = ' -movecomp inter'; % areguments added to the maxfilter unix command
                 mvcomp_out = char(fullfile(sesspath,[fstem '_headpoints.txt']),...
                     fullfile(sesspath,[fstem '_headposition.pos'])); % used later when checking md5 checksums
             elseif strcmp(aap.tasklist.currenttask.settings.sss.mvcomp, 'off')
+<<<<<<< HEAD
+=======
+                mvcompon = false;
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
                 mvcmd = '';
                 mvcomp_out = char(fullfile(sesspath,[fstem '_headpoints.txt'])); % used later when checking md5 checksums (no headpos in this case)
             else
@@ -180,10 +269,33 @@ switch task
             
             % HPI estimation and movement compensation
             if ~isEmptyRoom
+<<<<<<< HEAD
                 hpicmd = sprintf(' -linefreq 50 -hpistep %d -hpisubt %s -hpicons -hp %s',...
                     aas_getsetting(aap,'hpi.step',sess),...
                     aas_getsetting(aap,'hpi.subt',sess),...
                     fullfile(sesspath,[fstem '_headposition.pos']));
+=======
+                % movecomp on?
+                if mvcompon == true
+                    hpicmd = sprintf(' -linefreq 50 -hpistep %d -hpisubt %s -hpicons -hp %s',...
+                        aas_getsetting(aap,'hpi.step',sess),...
+                        aas_getsetting(aap,'hpi.subt',sess),...
+                        fullfile(sesspath,[fstem '_headposition.pos']));
+                elseif headpos == true % if movecomp is off, and if headpos is on
+                    % need the -headpos command here to output .pos file.
+                    % However this option will remove data where no HPI
+                    % coils could be found.
+                    hpicmd = sprintf(' -linefreq 50 -hpistep %d -hpisubt %s -hpicons -headpos -hp %s',... 
+                        aas_getsetting(aap,'hpi.step',sess),...
+                        aas_getsetting(aap,'hpi.subt',sess),...
+                        fullfile(sesspath,[fstem '_headposition.pos']));
+                else % movecomp and headpos both off
+                    hpicmd = sprintf(' -linefreq 50 -hpistep %d -hpisubt %s -hpicons -hp %s',... % 
+                        aas_getsetting(aap,'hpi.step',sess),...
+                        aas_getsetting(aap,'hpi.subt',sess),...
+                        fullfile(sesspath,[fstem '_headposition.pos']));
+                end
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
             else
                 hpicmd = ' -linefreq 50';
             end
@@ -218,6 +330,13 @@ switch task
                 ];
             aas_log(aap,false,mfcmd_rest);
             
+<<<<<<< HEAD
+=======
+            fid = fopen(sprintf('%s/mf_command.log', sesspath),'w');
+            fprintf(fid, '%s', mfcmd_rest);
+            fclose(fid);
+            
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
             % Executing MF
             [status, maxres] = unix(mfcmd_rest); % this stops screen-dumping?
             if status
@@ -274,17 +393,33 @@ switch task
                         aas_log(aap,true,'ERROR: Trans MaxFilter failed!')
                     else
                         aas_log(aap,false,maxres);
+<<<<<<< HEAD
+=======
+                        if deletefif
+                            delete(outtrfname)
+                            % Keep the log file.
+                        end
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
                     end
                 end
             end
             
             outs{1} = outfname; logs{1} = logfname;
             if ~isempty(spherefit) && ~isempty(aap.tasklist.currenttask.settings.transform)
+<<<<<<< HEAD
                 outs{2} = outtrfname; logs{2} = logtrfname;
             end
             
             %% Downsampling
             if ~isempty(aas_getsetting(aap,'downsampling'))
+=======
+                outs{2} = outtrfname; 
+                logs{2} = logtrfname;
+            end
+            
+            %% Downsampling
+            if ~isempty(aas_getsetting(aap,'downsampling')) && deletefif == false
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
                 for i = 1:numel(outs)
                     outdsfname = spm_file(outs{i},'prefix','ds_');
                     mfcmd_ds=[
@@ -302,6 +437,21 @@ switch task
                     end
                     outs{i} = outdsfname;
                 end
+<<<<<<< HEAD
+            end
+            
+            %% Outputs
+            aap=aas_desc_outputs(aap,subj,sess,instream,outs{1});
+            
+            if ~isEmptyRoom
+                aap=aas_desc_outputs(aap,subj,sess,[instream '_head'],mvcomp_out);
+            end
+            
+            if ~isempty(spherefit) && ~isempty(aap.tasklist.currenttask.settings.transform)
+                aap=aas_desc_outputs(aap,subj,sess,['trans_' instream],outs{2});
+=======
+
+>>>>>>> 5902eafba44246f56d7a232bf497b1b000606346
             end
             
             %% Outputs
@@ -314,5 +464,6 @@ switch task
             if ~isempty(spherefit) && ~isempty(aap.tasklist.currenttask.settings.transform)
                 aap=aas_desc_outputs(aap,subj,sess,['trans_' instream],outs{2});
             end
+
         end
 end
