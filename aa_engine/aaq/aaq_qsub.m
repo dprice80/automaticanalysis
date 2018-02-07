@@ -492,7 +492,13 @@ classdef aaq_qsub<aaq
             % counter
             if retry
                 % Remove files from previous execution
-                if exist(ji.jobpath,'dir'), rmdir(ji.jobpath,'s'); end
+                if exist(ji.jobpath,'dir')
+                    try
+                        rmdir(ji.jobpath,'s'); 
+                    catch ME
+                        aas_log(obj.aap, false, sprintf('WARNING: Job folder could not be removed. Error reported: %s', ME.message));
+                    end
+                end
                 
                 % Add to jobqueue
                 obj.jobretries.(ji.modulename)(ji.qi) = obj.jobretries.(ji.modulename)(ji.qi) + 1;
